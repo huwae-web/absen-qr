@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Scan QR Code - Sistem Absensi</title>
+    <link rel="stylesheet" href="../style.css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/absensi-qr/js/jsQR.js"></script>
+  </head>
+  <body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+      <!-- Header -->
+      <div class="bg-white rounded-lg shadow-lg p-6 mb-6 fade-in">
+        <div class="flex items-center justify-between">
+          <div>
+            <h1 class="text-3xl font-bold text-gray-800">Scan QR Code</h1>
+            <p class="text-gray-600 mt-1" id="mahasiswaInfo">Loading...</p>
+          </div>
+          <button onclick="window.location.href='dashboard-mahasiswa.html'" class="btn-secondary">
+            ← Kembali
+          </button>
+        </div>
+      </div>
+
+      <!-- Scanner Card -->
+      <div class="max-w-2xl mx-auto">
+        <div class="bg-white rounded-lg shadow-lg p-8 fade-in">
+          <!-- Status Container -->
+          <div id="statusContainer" class="mb-6"></div>
+
+          <!-- Video Container -->
+          <div class="relative rounded-lg overflow-hidden bg-gray-900 mb-4">
+            <video id="video" class="w-full" autoplay playsinline></video>
+            <canvas id="canvas" class="hidden"></canvas>
+
+            <!-- Scanning Overlay -->
+            <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div class="border-4 border-indigo-500 w-64 h-64 rounded-lg"></div>
+            </div>
+          </div>
+
+          <!-- QR UPLOAD ADDED -->
+          <div class="mt-4 mb-6">
+            <label class="block mb-2 font-semibold text-gray-700">Upload Gambar QR:</label>
+            <input 
+              type="file" 
+              id="qr-image-upload" 
+              accept="image/*" 
+              class="p-2 border rounded w-full bg-white"
+            />
+          </div>
+          <!-- END OF QR UPLOAD -->
+
+          <!-- Instructions -->
+          <div class="bg-blue-50 rounded-lg p-4 border border-blue-200">
+            <h3 class="font-semibold text-blue-800 mb-2">📋 Cara Scan:</h3>
+            <ol class="text-sm text-blue-700 space-y-1 list-decimal list-inside">
+              <li>Izinkan akses kamera pada browser</li>
+              <li>Arahkan kamera ke QR Code di layar dosen</li>
+              <li>Pastikan Anda berada di ruang kelas (radius 10m)</li>
+              <li>Tunggu hingga QR Code terdeteksi otomatis</li>
+            </ol>
+          </div>
+
+          <!-- Manual Stop Button -->
+          <button onclick="stopScanner()" class="w-full mt-4 btn-danger">
+            🛑 Stop Scanner
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="../js/storage.js"></script>
+    <script src="../js/auth.js"></script>
+    <script src="../js/gps.js"></script>
+    <script src="../js/qr.js"></script>
+
+    <script>
+      // Cek autentikasi
+      if (!requireAuth("mahasiswa")) {}
+
+      const user = getCurrentUser();
+      document.getElementById("mahasiswaInfo").textContent = user.nama + " | NPM: " + user.npm;
+
+      let stream = null;
+      let scanInterval = null;
+      let isProcessing = false;
+
+      function playBeep() {
+        try {
+          const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+          const oscillator = audioContext.createOscillator();
+          const gainNode = audioContext.createGain();
+
+          oscillator.connect(gainNode);
+          gainNode.connect(audioContext.destination);
+
+          oscillator.frequency.value = 800;
+          oscillator.type = "sine";
+
+          gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+          gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+
+          oscillator.start(audioContext.currentTime);
+          oscillator.stop(audioContext.currentTime + 0.1);
+        } catch (e) {
+          console.warn("Gagal memutar beep: ", e);
+        }
+      }
+
+      function showStatus(message, type) {
+        const container = document.getElementById("statusContainer");
+        let alertClass = "alert-info";
+        if (type === "success") alertClass = "alert-success";
+        else if (type === "error") alertClass = "alert-error";
+        else if (type === "warning") alertClass = "alert-warning";
+        container.innerHTML = '<div class="alert ' + alertClass + '">' + message + "</div>";
+      }
+
+      async function startCamera() {
+        try {
+          showStatus("Memulai kamera...", "info");
+          const constraints = {
+            video: {
+              facingMode: "environment",
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+          };
+
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+          const video = document.getElementById("video");
+          video.srcObject = stream;
+
+          showStatus("✅ Kamera aktif. Arahkan ke QR Code...", "success");
+
+          video.addEventListener("loadedmetadata", function () {
+            startScanning();
+          });
+        } catch (error) {
+          showStatus("❌ Tidak dapat mengakses kamera! " + error.message, "error");
+        }
+      }
+
+      function startScanning() {
+        const video = document.getElementById("video");
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
+
+        scanInterval = setInterval(function () {
+          if (video.readyState === video.HAVE_ENOUGH_DATA && !isProcessing) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0);
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const code = jsQR(imageData.data, imageData.width, imageData.height, {
+              inversionAttempts: "dontInvert",
+            });
+
+            if (code) {
+              playBeep();
+              isProcessing = true;
+              processQRCode(code.data);
+            }
+          }
+        }, 100);
+      }
+
+      /* =======================================================
+          🔥 FITUR BARU: SCAN QR DARI UPLOAD GAMBAR
+      ======================================================= */
+      document.getElementById("qr-image-upload").addEventListener("change", function (e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        stopScanner(); // hentikan kamera agar tidak bentrok
+
+        const reader = new FileReader();
+
+        reader.onload = function () {
+          const img = new Image();
+          img.src = reader.result;
+
+          img.onload = function () {
+            const canvas = document.createElement("canvas");
+            const ctx = canvas.getContext("2d");
+
+            canvas.width = img.width;
+            canvas.height = img.height;
+
+            ctx.drawImage(img, 0, 0);
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+            const code = jsQR(imageData.data, imageData.width, imageData.height, {
+              inversionAttempts: "dontInvert"
+            });
+
+            if (code) {
+              playBeep();
+              showStatus("📁 QR dari gambar berhasil dibaca!", "success");
+              isProcessing = true;
+              processQRCode(code.data);
+            } else {
+              showStatus("❌ Gambar tidak mengandung QR Code!", "error");
+            }
+          };
+        };
+
+        reader.readAsDataURL(file);
+      });
+      /* ======================================================= */
+
+      async function processQRCode(qrData) {
+        try {
+          showStatus("🔍 QR Code terdeteksi! Memproses...", "info");
+
+          const parsed = parseQRData(qrData);
+          if (!parsed.success) {
+            showStatus("❌ " + parsed.message, "error");
+            isProcessing = false;
+            return;
+          }
+
+          const data = parsed.data;
+          const session = await StorageManager.get("session:" + data.sessionId);
+          if (!session) {
+            showStatus("❌ Sesi tidak ditemukan!", "error");
+            isProcessing = false;
+            return;
+          }
+
+          if (session.status !== "active") {
+            showStatus("❌ Sesi sudah ditutup!", "error");
+            isProcessing = false;
+            return;
+          }
+
+          const validity = isQRCodeValid(data.timestamp);
+          if (!validity.isValid) {
+            showStatus("❌ QR Code sudah expired!", "error");
+            isProcessing = false;
+            return;
+          }
+
+          showStatus("📍 Memeriksa lokasi GPS...", "info");
+
+          const myPosition = await getCurrentPosition();
+          const distance = calculateDistance(
+            myPosition.latitude,
+            myPosition.longitude,
+            data.gpsLat,
+            data.gpsLong
+          );
+
+          if (distance > 10) {
+            showStatus("❌ Anda terlalu jauh dari ruang kelas!", "error");
+            isProcessing = false;
+            return;
+          }
+
+          const attendance = (await StorageManager.get("attendance:" + data.sessionId)) || [];
+          const alreadyAttended = attendance.find((a) => a.npm === user.npm);
+
+          if (alreadyAttended) {
+            showStatus("⚠️ Anda sudah absen!", "warning");
+            setTimeout(() => {
+              window.location.href = "dashboard-mahasiswa.html";
+            }, 2000);
+            return;
+          }
+
+          const now = new Date();
+          attendance.push({
+            npm: user.npm,
+            nama: user.nama,
+            kelas: user.kelas,
+            jamScan: now.toLocaleTimeString("id-ID"),
+            timestamp: now.getTime(),
+            status: "hadir",
+          });
+
+          await StorageManager.set("attendance:" + data.sessionId, attendance);
+
+          stopScanner();
+          showStatus("✅ Absensi berhasil dicatat!", "success");
+          playBeep();
+          setTimeout(playBeep, 200);
+
+          setTimeout(() => {
+            alert(
+              "Absensi berhasil!\n\n" +
+                "Mata Kuliah: " + session.mataKuliah +
+                "\nKelas: " + session.kelas +
+                "\nWaktu: " + now.toLocaleTimeString("id-ID") +
+                "\nJarak: " + Math.round(distance) + " meter"
+            );
+
+            window.location.href = "dashboard-mahasiswa.html";
+          }, 1200);
+
+        } catch (e) {
+          showStatus("❌ Error: " + e.message, "error");
+          isProcessing = false;
+        }
+      }
+
+      function stopScanner() {
+        if (stream) {
+          stream.getTracks().forEach((track) => track.stop());
+          stream = null;
+        }
+        if (scanInterval) {
+          clearInterval(scanInterval);
+          scanInterval = null;
+        }
+      }
+
+      window.addEventListener("load", startCamera);
+      window.addEventListener("beforeunload", stopScanner);
+    </script>
+  </body>
+</html>
