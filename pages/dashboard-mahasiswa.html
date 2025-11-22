@@ -175,53 +175,140 @@
         
         // Delete single attendance record
         async function deleteSingleAttendance(sessionId) {
-            const key = 'attendance:' + sessionId;
-            const attendance = await StorageManager.get(key);
-            
-            if (attendance && Array.isArray(attendance)) {
-                // Remove this mahasiswa's attendance
+            try {
+                // Construct the key - pastikan formatnya benar
+                const key = 'attendance:' + sessionId;
+                
+                console.log('=== DELETE PROCESS START ===');
+                console.log('Session ID:', sessionId);
+                console.log('Storage Key:', key);
+                console.log('User NPM:', user.npm);
+                
+                // Get current attendance data
+                const attendance = await StorageManager.get(key);
+                console.log('Current attendance data:', attendance);
+                console.log('Is array?', Array.isArray(attendance));
+                
+                if (!attendance) {
+                    console.error('❌ Attendance data not found for key:', key);
+                    showNotification('Data tidak ditemukan!', 'error');
+                    return;
+                }
+                
+                if (!Array.isArray(attendance)) {
+                    console.error('❌ Attendance data is not an array:', typeof attendance);
+                    showNotification('Format data tidak valid!', 'error');
+                    return;
+                }
+                
+                console.log('Total records before delete:', attendance.length);
+                
+                // Filter out this mahasiswa's attendance
                 const updatedAttendance = attendance.filter(function(a) {
+                    console.log('Checking NPM:', a.npm, 'vs', user.npm, '-> Match:', a.npm === user.npm);
                     return a.npm !== user.npm;
                 });
                 
-                // Save updated attendance
-                await StorageManager.set(key, updatedAttendance);
+                console.log('Total records after delete:', updatedAttendance.length);
+                console.log('Updated attendance:', updatedAttendance);
+                
+                // Check if anything was actually deleted
+                if (attendance.length === updatedAttendance.length) {
+                    console.warn('⚠️ No records were deleted - NPM not found in this session');
+                    showNotification('Data Anda tidak ditemukan di session ini!', 'error');
+                    return;
+                }
+                
+                // Save updated attendance back to storage
+                console.log('Saving updated attendance...');
+                const result = await StorageManager.set(key, updatedAttendance);
+                console.log('Save result:', result);
+                
+                if (!result) {
+                    console.error('❌ Failed to save updated attendance');
+                    showNotification('Gagal menyimpan perubahan!', 'error');
+                    return;
+                }
+                
+                console.log('✅ Delete successful!');
+                console.log('=== DELETE PROCESS END ===');
                 
                 // Reload history
                 await loadHistory();
                 
                 showNotification('Riwayat berhasil dihapus!', 'success');
+                
+            } catch (error) {
+                console.error('❌ Error deleting attendance:', error);
+                showNotification('Error: ' + error.message, 'error');
             }
         }
         
         // Delete all attendance records for this mahasiswa
         async function deleteAllAttendanceRecords() {
-            const sessionKeys = await StorageManager.list('attendance:');
-            
-            for (const key of sessionKeys) {
-                const attendance = await StorageManager.get(key);
-                if (attendance && Array.isArray(attendance)) {
-                    // Remove this mahasiswa's attendance
-                    const updatedAttendance = attendance.filter(function(a) {
-                        return a.npm !== user.npm;
-                    });
-                    
-                    // Save updated attendance
-                    await StorageManager.set(key, updatedAttendance);
+            try {
+                const sessionKeys = await StorageManager.list('attendance:');
+                console.log('Deleting from all keys:', sessionKeys);
+                
+                let deletedCount = 0;
+                
+                for (const key of sessionKeys) {
+                    const attendance = await StorageManager.get(key);
+                    if (attendance && Array.isArray(attendance)) {
+                        const beforeLength = attendance.length;
+                        
+                        // Remove this mahasiswa's attendance
+                        const updatedAttendance = attendance.filter(function(a) {
+                            return a.npm !== user.npm;
+                        });
+                        
+                        const afterLength = updatedAttendance.length;
+                        
+                        if (beforeLength !== afterLength) {
+                            // Save updated attendance
+                            await StorageManager.set(key, updatedAttendance);
+                            deletedCount++;
+                            console.log('Deleted from:', key);
+                        }
+                    }
                 }
+                
+                console.log('Total records deleted:', deletedCount);
+                
+                // Reload history
+                await loadHistory();
+                
+                showNotification('Semua riwayat berhasil dihapus! (' + deletedCount + ' records)', 'success');
+            } catch (error) {
+                console.error('Error deleting all attendance:', error);
+                showNotification('Error: ' + error.message, 'error');
             }
-            
-            // Reload history
-            await loadHistory();
-            
-            showNotification('Semua riwayat berhasil dihapus!', 'success');
         }
         
         // Show confirm modal
         function showConfirmModal(message, callback) {
-            document.getElementById('confirmMessage').textContent = message;
-            document.getElementById('confirmModal').style.display = 'flex';
+            console.log('showConfirmModal called');
+            console.log('Message:', message);
+            
+            const modal = document.getElementById('confirmModal');
+            const messageEl = document.getElementById('confirmMessage');
+            
+            if (!modal) {
+                console.error('Modal element not found!');
+                return;
+            }
+            
+            if (!messageEl) {
+                console.error('Message element not found!');
+                return;
+            }
+            
+            messageEl.textContent = message;
+            modal.style.display = 'flex';
             deleteCallback = callback;
+            
+            console.log('Modal should be visible now');
+            console.log('deleteCallback set:', !!deleteCallback);
         }
         
         // Close confirm modal
@@ -232,26 +319,57 @@
         
         // Confirm delete
         async function confirmDelete() {
+            console.log('confirmDelete called');
+            console.log('deleteCallback exists?', !!deleteCallback);
+            
             closeConfirmModal();
+            
             if (deleteCallback) {
                 showLoading();
-                await deleteCallback();
+                try {
+                    await deleteCallback();
+                } catch (error) {
+                    console.error('Error in deleteCallback:', error);
+                    showNotification('Error: ' + error.message, 'error');
+                }
                 hideLoading();
+            } else {
+                console.error('No deleteCallback found!');
             }
         }
         
-        // Delete single history
+        // Delete single history - TEMPORARY: using confirm() for testing
         function deleteHistory(sessionId) {
-            showConfirmModal('Apakah Anda yakin ingin menghapus riwayat kehadiran ini?', function() {
-                return deleteSingleAttendance(sessionId);
-            });
+            console.log('deleteHistory called with sessionId:', sessionId);
+            
+            // Temporary: use browser confirm instead of modal
+            if (confirm('Apakah Anda yakin ingin menghapus riwayat kehadiran ini?')) {
+                console.log('Confirmed! Calling deleteSingleAttendance...');
+                showLoading();
+                deleteSingleAttendance(sessionId).then(function() {
+                    hideLoading();
+                }).catch(function(error) {
+                    console.error('Error:', error);
+                    hideLoading();
+                });
+            }
         }
         
-        // Delete all history
+        // Delete all history - TEMPORARY: using confirm() for testing
         function deleteAllHistory() {
-            showConfirmModal('Apakah Anda yakin ingin menghapus SEMUA riwayat kehadiran Anda? Tindakan ini tidak dapat dibatalkan!', function() {
-                return deleteAllAttendanceRecords();
-            });
+            console.log('deleteAllHistory called');
+            
+            // Temporary: use browser confirm instead of modal
+            if (confirm('Apakah Anda yakin ingin menghapus SEMUA riwayat kehadiran Anda? Tindakan ini tidak dapat dibatalkan!')) {
+                console.log('Confirmed! Calling deleteAllAttendanceRecords...');
+                showLoading();
+                deleteAllAttendanceRecords().then(function() {
+                    hideLoading();
+                }).catch(function(error) {
+                    console.error('Error:', error);
+                    hideLoading();
+                });
+            }
         }
         
         // Show notification
@@ -334,12 +452,22 @@
                     '<td>' + item.session.tanggal + '</td>' +
                     '<td>' + (item.attendance.jamScan || '-') + '</td>' +
                     '<td>' + badge + '</td>' +
-                    '<td><button onclick="deleteHistory(\'' + item.sessionId + '\')" class="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm transition">🗑️ Hapus</button></td>' +
+                    '<td><button class="delete-btn bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm transition" data-session-id="' + item.sessionId + '">🗑️ Hapus</button></td>' +
                     '</tr>';
             });
             
             html += '</tbody></table></div>';
             container.innerHTML = html;
+            
+            // Add event listeners to delete buttons
+            const deleteButtons = container.querySelectorAll('.delete-btn');
+            deleteButtons.forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    const sessionId = this.getAttribute('data-session-id');
+                    console.log('Delete button clicked for session:', sessionId);
+                    deleteHistory(sessionId);
+                });
+            });
         }
         
         // Refresh history
