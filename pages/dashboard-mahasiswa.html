@@ -84,14 +84,35 @@
         <div class="bg-white rounded-lg shadow-lg p-6 fade-in">
             <div class="flex justify-between items-center mb-4">
                 <h2 class="text-2xl font-bold">Riwayat Kehadiran</h2>
-                <button onclick="refreshHistory()" class="text-indigo-600 hover:text-indigo-800 font-semibold">
-                    🔄 Refresh
-                </button>
+                <div class="flex gap-2">
+                    <button onclick="deleteAllHistory()" class="bg-red-500 hover:bg-red-600 text-white font-semibold px-4 py-2 rounded-lg transition" id="deleteAllBtn" style="display:none;">
+                        🗑️ Hapus Semua
+                    </button>
+                    <button onclick="refreshHistory()" class="text-indigo-600 hover:text-indigo-800 font-semibold">
+                        🔄 Refresh
+                    </button>
+                </div>
             </div>
             
             <div id="historyList"></div>
         </div>
         
+    </div>
+    
+    <!-- Modal Konfirmasi -->
+    <div id="confirmModal" style="display:none;" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 max-w-md mx-4">
+            <h3 class="text-xl font-bold mb-4">Konfirmasi Hapus</h3>
+            <p class="text-gray-600 mb-6" id="confirmMessage">Apakah Anda yakin ingin menghapus riwayat ini?</p>
+            <div class="flex justify-end gap-3">
+                <button onclick="closeConfirmModal()" class="px-4 py-2 bg-gray-300 hover:bg-gray-400 rounded-lg font-semibold transition">
+                    Batal
+                </button>
+                <button onclick="confirmDelete()" class="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg font-semibold transition">
+                    Hapus
+                </button>
+            </div>
+        </div>
     </div>
     
     <!-- Scripts -->
@@ -104,6 +125,8 @@
         }
         
         const user = getCurrentUser();
+        let currentHistory = [];
+        let deleteCallback = null;
         
         // Display mahasiswa info
         document.getElementById('mahasiswaName').textContent = user.nama + ' | NPM: ' + user.npm + ' | Angkatan: ' + user.kelas;
@@ -133,6 +156,7 @@
                         
                         if (session) {
                             allAttendance.push({
+                                sessionId: sessionId,
                                 session: session,
                                 attendance: myAttendance[0]
                             });
@@ -149,9 +173,113 @@
             return allAttendance;
         }
         
+        // Delete single attendance record
+        async function deleteSingleAttendance(sessionId) {
+            const key = 'attendance:' + sessionId;
+            const attendance = await StorageManager.get(key);
+            
+            if (attendance && Array.isArray(attendance)) {
+                // Remove this mahasiswa's attendance
+                const updatedAttendance = attendance.filter(function(a) {
+                    return a.npm !== user.npm;
+                });
+                
+                // Save updated attendance
+                await StorageManager.set(key, updatedAttendance);
+                
+                // Reload history
+                await loadHistory();
+                
+                showNotification('Riwayat berhasil dihapus!', 'success');
+            }
+        }
+        
+        // Delete all attendance records for this mahasiswa
+        async function deleteAllAttendanceRecords() {
+            const sessionKeys = await StorageManager.list('attendance:');
+            
+            for (const key of sessionKeys) {
+                const attendance = await StorageManager.get(key);
+                if (attendance && Array.isArray(attendance)) {
+                    // Remove this mahasiswa's attendance
+                    const updatedAttendance = attendance.filter(function(a) {
+                        return a.npm !== user.npm;
+                    });
+                    
+                    // Save updated attendance
+                    await StorageManager.set(key, updatedAttendance);
+                }
+            }
+            
+            // Reload history
+            await loadHistory();
+            
+            showNotification('Semua riwayat berhasil dihapus!', 'success');
+        }
+        
+        // Show confirm modal
+        function showConfirmModal(message, callback) {
+            document.getElementById('confirmMessage').textContent = message;
+            document.getElementById('confirmModal').style.display = 'flex';
+            deleteCallback = callback;
+        }
+        
+        // Close confirm modal
+        function closeConfirmModal() {
+            document.getElementById('confirmModal').style.display = 'none';
+            deleteCallback = null;
+        }
+        
+        // Confirm delete
+        async function confirmDelete() {
+            closeConfirmModal();
+            if (deleteCallback) {
+                showLoading();
+                await deleteCallback();
+                hideLoading();
+            }
+        }
+        
+        // Delete single history
+        function deleteHistory(sessionId) {
+            showConfirmModal('Apakah Anda yakin ingin menghapus riwayat kehadiran ini?', function() {
+                return deleteSingleAttendance(sessionId);
+            });
+        }
+        
+        // Delete all history
+        function deleteAllHistory() {
+            showConfirmModal('Apakah Anda yakin ingin menghapus SEMUA riwayat kehadiran Anda? Tindakan ini tidak dapat dibatalkan!', function() {
+                return deleteAllAttendanceRecords();
+            });
+        }
+        
+        // Show notification
+        function showNotification(message, type) {
+            const colors = {
+                success: 'bg-green-500',
+                error: 'bg-red-500',
+                info: 'bg-blue-500'
+            };
+            
+            const notif = document.createElement('div');
+            notif.className = 'fixed top-4 right-4 ' + colors[type] + ' text-white px-6 py-3 rounded-lg shadow-lg z-50 transition-opacity';
+            notif.textContent = message;
+            document.body.appendChild(notif);
+            
+            setTimeout(function() {
+                notif.style.opacity = '0';
+                setTimeout(function() {
+                    document.body.removeChild(notif);
+                }, 300);
+            }, 3000);
+        }
+        
         // Render history
         function renderHistory(history) {
+            currentHistory = history;
             const container = document.getElementById('historyList');
+            const deleteAllBtn = document.getElementById('deleteAllBtn');
             
             if (history.length === 0) {
                 container.innerHTML = '<div class="text-center py-12 text-gray-500">' +
@@ -159,8 +287,12 @@
                     '<p class="text-xl">Belum ada riwayat kehadiran</p>' +
                     '<p class="text-sm mt-2">Scan QR Code untuk mulai absen</p>' +
                     '</div>';
+                deleteAllBtn.style.display = 'none';
                 return;
             }
+            
+            // Show delete all button
+            deleteAllBtn.style.display = 'block';
             
             // Calculate stats
             let hadir = 0, sakit = 0, izin = 0, alpha = 0;
@@ -185,6 +317,7 @@
                 '<th>Tanggal</th>' +
                 '<th>Jam Scan</th>' +
                 '<th>Status</th>' +
+                '<th>Aksi</th>' +
                 '</tr></thead><tbody>';
             
             history.forEach(function(item, index) {
@@ -201,6 +334,7 @@
                     '<td>' + item.session.tanggal + '</td>' +
                     '<td>' + (item.attendance.jamScan || '-') + '</td>' +
                     '<td>' + badge + '</td>' +
+                    '<td><button onclick="deleteHistory(\'' + item.sessionId + '\')" class="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm transition">🗑️ Hapus</button></td>' +
                     '</tr>';
             });
             
@@ -221,9 +355,19 @@
             renderHistory(history);
         }
         
+        // Loading functions
+        function showLoading() {
+            // Simple loading implementation
+            document.body.style.cursor = 'wait';
+        }
+        
+        function hideLoading() {
+            document.body.style.cursor = 'default';
+        }
+        
         // Initial load
         loadHistory();
     </script>
     
 </body>
-</html> 
+</html>
