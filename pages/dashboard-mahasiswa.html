@@ -99,38 +99,26 @@
     <script src="../js/auth.js"></script>
     <script>
         // Check authentication
-        if (!requireAuth('mahasiswa')) {
-            // Will redirect if not authenticated
-        }
-        
+        if (!requireAuth('mahasiswa')) {}
+
         const user = getCurrentUser();
-        
-        // Display mahasiswa info
-        document.getElementById('mahasiswaName').textContent = user.nama + ' | NPM: ' + user.npm + ' | Kelas: ' + user.kelas;
-        
-        // Go to scan page
+        document.getElementById('mahasiswaName').textContent = user.nama + ' | NPM: ' + user.npm + ' | Angkatan: ' + user.kelas;
+
         function goToScan() {
             window.location.href = 'scan-qr.html';
         }
-        
-        // Get mahasiswa attendance history
+
         async function getMahasiswaAttendance() {
             const sessionKeys = await StorageManager.list('attendance:');
             const allAttendance = [];
-            
+
             for (const key of sessionKeys) {
                 const attendance = await StorageManager.get(key);
                 if (attendance && Array.isArray(attendance)) {
-                    // Filter attendance for this mahasiswa
-                    const myAttendance = attendance.filter(function(a) {
-                        return a.npm === user.npm;
-                    });
-                    
+                    const myAttendance = attendance.filter(a => a.npm === user.npm);
                     if (myAttendance.length > 0) {
-                        // Get session info
                         const sessionId = key.replace('attendance:', '');
                         const session = await StorageManager.get('session:' + sessionId);
-                        
                         if (session) {
                             allAttendance.push({
                                 session: session,
@@ -140,19 +128,14 @@
                     }
                 }
             }
-            
-            // Sort by timestamp (newest first)
-            allAttendance.sort(function(a, b) {
-                return b.session.timestampMulai - a.session.timestampMulai;
-            });
-            
+            allAttendance.sort((a, b) => b.session.timestampMulai - a.session.timestampMulai);
             return allAttendance;
         }
-        
-        // Render history
+
+        // Render history + tombol hapus
         function renderHistory(history) {
             const container = document.getElementById('historyList');
-            
+
             if (history.length === 0) {
                 container.innerHTML = '<div class="text-center py-12 text-gray-500">' +
                     '<div class="text-6xl mb-4">📭</div>' +
@@ -161,22 +144,20 @@
                     '</div>';
                 return;
             }
-            
-            // Calculate stats
+
             let hadir = 0, sakit = 0, izin = 0, alpha = 0;
-            history.forEach(function(h) {
+            history.forEach(h => {
                 if (h.attendance.status === 'hadir') hadir++;
                 else if (h.attendance.status === 'sakit') sakit++;
                 else if (h.attendance.status === 'izin') izin++;
                 else if (h.attendance.status === 'alpha') alpha++;
             });
-            
+
             document.getElementById('countHadir').textContent = hadir;
             document.getElementById('countSakit').textContent = sakit;
             document.getElementById('countIzin').textContent = izin;
             document.getElementById('countAlpha').textContent = alpha;
-            
-            // Render table
+
             let html = '<div class="overflow-x-auto"><table class="data-table">';
             html += '<thead><tr>' +
                 '<th>No</th>' +
@@ -185,15 +166,16 @@
                 '<th>Tanggal</th>' +
                 '<th>Jam Scan</th>' +
                 '<th>Status</th>' +
+                '<th>Aksi</th>' +
                 '</tr></thead><tbody>';
-            
-            history.forEach(function(item, index) {
+
+            history.forEach((item, index) => {
                 let badge = '';
                 if (item.attendance.status === 'hadir') badge = '<span class="badge badge-success">Hadir</span>';
                 else if (item.attendance.status === 'sakit') badge = '<span class="badge badge-warning">Sakit</span>';
                 else if (item.attendance.status === 'izin') badge = '<span class="badge badge-info">Izin</span>';
                 else badge = '<span class="badge badge-danger">Alpha</span>';
-                
+
                 html += '<tr>' +
                     '<td>' + (index + 1) + '</td>' +
                     '<td>' + item.session.mataKuliah + '</td>' +
@@ -201,29 +183,47 @@
                     '<td>' + item.session.tanggal + '</td>' +
                     '<td>' + (item.attendance.jamScan || '-') + '</td>' +
                     '<td>' + badge + '</td>' +
+                    '<td><button class="btn-danger px-3 py-1 text-sm" onclick="deleteAttendance(\'' + item.session.id + '\')">🗑 Hapus</button></td>' +
                     '</tr>';
             });
-            
+
             html += '</tbody></table></div>';
             container.innerHTML = html;
         }
-        
-        // Refresh history
-        async function refreshHistory() {
-            showLoading();
-            await loadHistory();
-            hideLoading();
+
+        // Fungsi hapus riwayat absensi
+        async function deleteAttendance(sessionId) {
+            const confirmDelete = confirm("Yakin ingin menghapus riwayat absensi ini?");
+            if (!confirmDelete) return;
+
+            const key = 'attendance:' + sessionId;
+            let attendance = await StorageManager.get(key);
+
+            if (!attendance) return;
+
+            attendance = attendance.filter(a => a.npm !== user.npm);
+
+            if (attendance.length === 0) {
+                await StorageManager.remove(key);
+            } else {
+                await StorageManager.set(key, attendance);
+            }
+
+            alert("Riwayat berhasil dihapus!");
+            loadHistory();
         }
-        
-        // Load history
+
+        async function refreshHistory() {
+            await loadHistory();
+        }
+
         async function loadHistory() {
             const history = await getMahasiswaAttendance();
             renderHistory(history);
         }
-        
-        // Initial load
+
         loadHistory();
     </script>
     
 </body>
-</html> 
+</html>
