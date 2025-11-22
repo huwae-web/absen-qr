@@ -95,7 +95,7 @@
                             <option value="">Pilih Status</option>
                             <option value="sakit">Sakit</option>
                             <option value="izin">Izin</option>
-                            <option value="alpha">Alpha</option>
+                            <option value="Alpa">Alpa</option>
                         </select>
                         <button type="submit" class="w-full btn-primary text-sm py-2">Tambah</button>
                     </form>
@@ -236,7 +236,7 @@
                 if (item.status === 'hadir') badge = '<span class="badge badge-success">Hadir</span>';
                 else if (item.status === 'sakit') badge = '<span class="badge badge-warning">Sakit</span>';
                 else if (item.status === 'izin') badge = '<span class="badge badge-info">Izin</span>';
-                else badge = '<span class="badge badge-danger">Alpha</span>';
+                else badge = '<span class="badge badge-danger">Alpa</span>';
                 
                 html += '<div class="border rounded-lg p-3">' +
                     '<div class="flex justify-between items-start">' +
@@ -365,9 +365,9 @@
             const hadir = attendance.filter(function(a) { return a.status === 'hadir'; }).length;
             const sakit = attendance.filter(function(a) { return a.status === 'sakit'; }).length;
             const izin = attendance.filter(function(a) { return a.status === 'izin'; }).length;
-            const alpha = attendance.filter(function(a) { return a.status === 'alpha'; }).length;
+            const Alpa = attendance.filter(function(a) { return a.status === 'Alpa'; }).length;
             
-            doc.text('Total Hadir: ' + hadir + ' | Sakit: ' + sakit + ' | Izin: ' + izin + ' | Alpha: ' + alpha, 20, y);
+            doc.text('Total Hadir: ' + hadir + ' | Sakit: ' + sakit + ' | Izin: ' + izin + ' | Alpa: ' + Alpa, 20, y);
             
             doc.save('Absensi_' + sessionData.mataKuliah + '_' + sessionData.tanggal + '.pdf');
         }

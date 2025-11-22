@@ -180,13 +180,14 @@
                     '<p>🆔 ID: <strong>' + session.sessionId + '</strong></p>' +
                     '</div>' +
                     '</div>' +
-                    '<div class="flex gap-2">';
+                    '<div class="flex flex-col gap-2">';
                 
                 if (session.status === 'active') {
-                    html += '<button onclick="viewSession(\'' + session.sessionId + '\')" class="btn-primary">Lihat QR</button>' +
-                        '<button onclick="closeSessionConfirm(\'' + session.sessionId + '\')" class="btn-danger">Tutup Sesi</button>';
+                    html += '<button onclick="viewSession(\'' + session.sessionId + '\')" class="btn-primary whitespace-nowrap">👁️ Lihat QR</button>' +
+                        '<button onclick="closeSessionConfirm(\'' + session.sessionId + '\')" class="btn-danger whitespace-nowrap">🔒 Tutup Sesi</button>';
                 } else {
-                    html += '<button onclick="viewAttendance(\'' + session.sessionId + '\')" class="btn-secondary">Lihat Absensi</button>';
+                    html += '<button onclick="viewAttendance(\'' + session.sessionId + '\')" class="btn-secondary whitespace-nowrap">📋 Lihat Absensi</button>' +
+                        '<button onclick="deleteSessionConfirm(\'' + session.sessionId + '\')" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-semibold transition whitespace-nowrap">🗑️ Hapus Sesi</button>';
                 }
                 
                 html += '</div></div></div>';
@@ -232,6 +233,73 @@
             hideLoading();
         }
         
+        // Delete Session (and its attendance data)
+        async function deleteSessionConfirm(sessionId) {
+            const session = await StorageManager.get('session:' + sessionId);
+            
+            if (!session) {
+                alert('Sesi tidak ditemukan!');
+                return;
+            }
+            
+            // Check if session is still active
+            if (session.status === 'active') {
+                alert('Tidak dapat menghapus sesi yang masih aktif! Tutup sesi terlebih dahulu.');
+                return;
+            }
+            
+            // Get attendance count
+            const attendance = await StorageManager.get('attendance:' + sessionId) || [];
+            const attendanceCount = attendance.length;
+            
+            // Confirm deletion
+            const confirmMessage = 'PERINGATAN: Anda akan menghapus sesi ini secara permanen!\n\n' +
+                'Sesi: ' + session.mataKuliah + ' - ' + session.kelas + '\n' +
+                'Tanggal: ' + session.tanggal + '\n' +
+                'Total Absensi: ' + attendanceCount + ' mahasiswa\n\n' +
+                'Data yang dihapus:\n' +
+                '- Data sesi kuliah\n' +
+                '- Semua data absensi mahasiswa (' + attendanceCount + ' records)\n\n' +
+                'Tindakan ini TIDAK DAPAT DIBATALKAN!\n\n' +
+                'Ketik "HAPUS" untuk konfirmasi:';
+            
+            const userInput = prompt(confirmMessage);
+            
+            if (userInput !== 'HAPUS') {
+                alert('Penghapusan dibatalkan.');
+                return;
+            }
+            
+            showLoading();
+            
+            try {
+                console.log('=== DELETE SESSION START ===');
+                console.log('Session ID:', sessionId);
+                console.log('Attendance count:', attendanceCount);
+                
+                // Delete attendance data
+                await StorageManager.delete('attendance:' + sessionId);
+                console.log('✅ Attendance data deleted');
+                
+                // Delete session data
+                await StorageManager.delete('session:' + sessionId);
+                console.log('✅ Session data deleted');
+                
+                console.log('=== DELETE SESSION END ===');
+                
+                alert('Sesi dan semua data absensi berhasil dihapus!\n\nDihapus:\n- 1 sesi kuliah\n- ' + attendanceCount + ' data absensi');
+                
+                // Reload sessions
+                await loadSessions();
+                
+            } catch (error) {
+                console.error('Error deleting session:', error);
+                alert('Error: Gagal menghapus sesi!\n' + error.message);
+            }
+            
+            hideLoading();
+        }
+        
         // Load Sessions
         async function loadSessions() {
             showLoading();
@@ -249,6 +317,8 @@
         
         // Initial load
         loadSessions();
+        
+        console.log('✅ Dashboard Dosen loaded with Delete Session feature');
     </script>
     
 </body>

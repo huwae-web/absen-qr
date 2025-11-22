@@ -72,8 +72,8 @@
             <div class="bg-white rounded-lg shadow-lg p-6 fade-in">
                 <div class="flex items-center justify-between">
                     <div>
-                        <p class="text-gray-500 text-sm">Alpha</p>
-                        <p class="text-3xl font-bold text-red-600" id="countAlpha">0</p>
+                        <p class="text-gray-500 text-sm">Alpa</p>
+                        <p class="text-3xl font-bold text-red-600" id="countAlpa">0</p>
                     </div>
                     <div class="text-5xl">❌</div>
                 </div>
@@ -99,22 +99,6 @@
         
     </div>
     
-    <!-- Modal Konfirmasi -->
-    <div id="confirmModal" style="display:none;" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <div class="bg-white rounded-lg shadow-xl p-6 max-w-md mx-4">
-            <h3 class="text-xl font-bold mb-4">Konfirmasi Hapus</h3>
-            <p class="text-gray-600 mb-6" id="confirmMessage">Apakah Anda yakin ingin menghapus riwayat ini?</p>
-            <div class="flex justify-end gap-3">
-                <button onclick="closeConfirmModal()" class="px-4 py-2 bg-gray-300 hover:bg-gray-400 rounded-lg font-semibold transition">
-                    Batal
-                </button>
-                <button onclick="confirmDelete()" class="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg font-semibold transition">
-                    Hapus
-                </button>
-            </div>
-        </div>
-    </div>
-    
     <!-- Scripts -->
     <script src="../js/storage.js"></script>
     <script src="../js/auth.js"></script>
@@ -126,7 +110,6 @@
         
         const user = getCurrentUser();
         let currentHistory = [];
-        let deleteCallback = null;
         
         // Display mahasiswa info
         document.getElementById('mahasiswaName').textContent = user.nama + ' | NPM: ' + user.npm + ' | Angkatan: ' + user.kelas;
@@ -136,10 +119,61 @@
             window.location.href = 'scan-qr.html';
         }
         
-        // Get mahasiswa attendance history
+        // ==================== HIDDEN LIST MANAGEMENT ====================
+        // Storage key untuk hidden list: hidden:mahasiswa:NPM
+        
+        // Get hidden list for current mahasiswa
+        async function getHiddenList() {
+            const key = 'hidden:mahasiswa:' + user.npm;
+            const hiddenList = await StorageManager.get(key);
+            return hiddenList || [];
+        }
+        
+        // Add session to hidden list
+        async function addToHiddenList(sessionId) {
+            const key = 'hidden:mahasiswa:' + user.npm;
+            let hiddenList = await getHiddenList();
+            
+            if (!hiddenList.includes(sessionId)) {
+                hiddenList.push(sessionId);
+                await StorageManager.set(key, hiddenList);
+                console.log('✅ Added to hidden list:', sessionId);
+            }
+            
+            return true;
+        }
+        
+        // Remove session from hidden list (untuk restore jika perlu)
+        async function removeFromHiddenList(sessionId) {
+            const key = 'hidden:mahasiswa:' + user.npm;
+            let hiddenList = await getHiddenList();
+            
+            hiddenList = hiddenList.filter(function(id) {
+                return id !== sessionId;
+            });
+            
+            await StorageManager.set(key, hiddenList);
+            console.log('✅ Removed from hidden list:', sessionId);
+            return true;
+        }
+        
+        // Clear all hidden list
+        async function clearHiddenList() {
+            const key = 'hidden:mahasiswa:' + user.npm;
+            await StorageManager.set(key, []);
+            console.log('✅ Hidden list cleared');
+            return true;
+        }
+        
+        // ==================== ATTENDANCE FUNCTIONS ====================
+        
+        // Get mahasiswa attendance history (filtered by hidden list)
         async function getMahasiswaAttendance() {
             const sessionKeys = await StorageManager.list('attendance:');
+            const hiddenList = await getHiddenList();
             const allAttendance = [];
+            
+            console.log('Hidden sessions:', hiddenList);
             
             for (const key of sessionKeys) {
                 const attendance = await StorageManager.get(key);
@@ -152,6 +186,13 @@
                     if (myAttendance.length > 0) {
                         // Get session info
                         const sessionId = key.replace('attendance:', '');
+                        
+                        // Skip if session is hidden
+                        if (hiddenList.includes(sessionId)) {
+                            console.log('Skipping hidden session:', sessionId);
+                            continue;
+                        }
+                        
                         const session = await StorageManager.get('session:' + sessionId);
                         
                         if (session) {
@@ -173,177 +214,80 @@
             return allAttendance;
         }
         
-        // Delete single attendance record
+        // ==================== DELETE FUNCTIONS ====================
+        
+        // Delete single attendance (add to hidden list)
         async function deleteSingleAttendance(sessionId) {
             try {
-                // Construct the key - pastikan formatnya benar
-                const key = 'attendance:' + sessionId;
-                
-                console.log('=== DELETE PROCESS START ===');
+                console.log('=== SOFT DELETE START ===');
                 console.log('Session ID:', sessionId);
-                console.log('Storage Key:', key);
                 console.log('User NPM:', user.npm);
                 
-                // Get current attendance data
-                const attendance = await StorageManager.get(key);
-                console.log('Current attendance data:', attendance);
-                console.log('Is array?', Array.isArray(attendance));
+                // Add to hidden list instead of deleting from storage
+                await addToHiddenList(sessionId);
                 
-                if (!attendance) {
-                    console.error('❌ Attendance data not found for key:', key);
-                    showNotification('Data tidak ditemukan!', 'error');
-                    return;
-                }
-                
-                if (!Array.isArray(attendance)) {
-                    console.error('❌ Attendance data is not an array:', typeof attendance);
-                    showNotification('Format data tidak valid!', 'error');
-                    return;
-                }
-                
-                console.log('Total records before delete:', attendance.length);
-                
-                // Filter out this mahasiswa's attendance
-                const updatedAttendance = attendance.filter(function(a) {
-                    console.log('Checking NPM:', a.npm, 'vs', user.npm, '-> Match:', a.npm === user.npm);
-                    return a.npm !== user.npm;
-                });
-                
-                console.log('Total records after delete:', updatedAttendance.length);
-                console.log('Updated attendance:', updatedAttendance);
-                
-                // Check if anything was actually deleted
-                if (attendance.length === updatedAttendance.length) {
-                    console.warn('⚠️ No records were deleted - NPM not found in this session');
-                    showNotification('Data Anda tidak ditemukan di session ini!', 'error');
-                    return;
-                }
-                
-                // Save updated attendance back to storage
-                console.log('Saving updated attendance...');
-                const result = await StorageManager.set(key, updatedAttendance);
-                console.log('Save result:', result);
-                
-                if (!result) {
-                    console.error('❌ Failed to save updated attendance');
-                    showNotification('Gagal menyimpan perubahan!', 'error');
-                    return;
-                }
-                
-                console.log('✅ Delete successful!');
-                console.log('=== DELETE PROCESS END ===');
+                console.log('✅ Soft delete successful!');
+                console.log('=== SOFT DELETE END ===');
                 
                 // Reload history
                 await loadHistory();
                 
-                showNotification('Riwayat berhasil dihapus!', 'success');
+                showNotification('Riwayat berhasil diHapus!', 'success');
                 
             } catch (error) {
-                console.error('❌ Error deleting attendance:', error);
+                console.error('❌ Error hiding attendance:', error);
                 showNotification('Error: ' + error.message, 'error');
             }
         }
         
-        // Delete all attendance records for this mahasiswa
+        // Delete all attendance records (add all to hidden list)
         async function deleteAllAttendanceRecords() {
             try {
-                const sessionKeys = await StorageManager.list('attendance:');
-                console.log('Deleting from all keys:', sessionKeys);
+                console.log('=== HIDE ALL START ===');
                 
-                let deletedCount = 0;
+                // Get all session IDs for this mahasiswa
+                const sessionKeys = await StorageManager.list('attendance:');
+                const sessionsToHide = [];
                 
                 for (const key of sessionKeys) {
                     const attendance = await StorageManager.get(key);
                     if (attendance && Array.isArray(attendance)) {
-                        const beforeLength = attendance.length;
-                        
-                        // Remove this mahasiswa's attendance
-                        const updatedAttendance = attendance.filter(function(a) {
-                            return a.npm !== user.npm;
+                        const hasMyRecord = attendance.some(function(a) {
+                            return a.npm === user.npm;
                         });
                         
-                        const afterLength = updatedAttendance.length;
-                        
-                        if (beforeLength !== afterLength) {
-                            // Save updated attendance
-                            await StorageManager.set(key, updatedAttendance);
-                            deletedCount++;
-                            console.log('Deleted from:', key);
+                        if (hasMyRecord) {
+                            const sessionId = key.replace('attendance:', '');
+                            sessionsToHide.push(sessionId);
                         }
                     }
                 }
                 
-                console.log('Total records deleted:', deletedCount);
+                console.log('Sessions to hide:', sessionsToHide);
+                
+                // Add all to hidden list
+                const key = 'hidden:mahasiswa:' + user.npm;
+                await StorageManager.set(key, sessionsToHide);
+                
+                console.log('✅ All sessions hidden:', sessionsToHide.length);
+                console.log('=== HIDE ALL END ===');
                 
                 // Reload history
                 await loadHistory();
                 
-                showNotification('Semua riwayat berhasil dihapus! (' + deletedCount + ' records)', 'success');
+                showNotification('Semua riwayat berhasil diHapus! (' + sessionsToHide.length + ' records)', 'success');
+                
             } catch (error) {
-                console.error('Error deleting all attendance:', error);
+                console.error('❌ Error hiding all attendance:', error);
                 showNotification('Error: ' + error.message, 'error');
             }
         }
         
-        // Show confirm modal
-        function showConfirmModal(message, callback) {
-            console.log('showConfirmModal called');
-            console.log('Message:', message);
-            
-            const modal = document.getElementById('confirmModal');
-            const messageEl = document.getElementById('confirmMessage');
-            
-            if (!modal) {
-                console.error('Modal element not found!');
-                return;
-            }
-            
-            if (!messageEl) {
-                console.error('Message element not found!');
-                return;
-            }
-            
-            messageEl.textContent = message;
-            modal.style.display = 'flex';
-            deleteCallback = callback;
-            
-            console.log('Modal should be visible now');
-            console.log('deleteCallback set:', !!deleteCallback);
-        }
-        
-        // Close confirm modal
-        function closeConfirmModal() {
-            document.getElementById('confirmModal').style.display = 'none';
-            deleteCallback = null;
-        }
-        
-        // Confirm delete
-        async function confirmDelete() {
-            console.log('confirmDelete called');
-            console.log('deleteCallback exists?', !!deleteCallback);
-            
-            closeConfirmModal();
-            
-            if (deleteCallback) {
-                showLoading();
-                try {
-                    await deleteCallback();
-                } catch (error) {
-                    console.error('Error in deleteCallback:', error);
-                    showNotification('Error: ' + error.message, 'error');
-                }
-                hideLoading();
-            } else {
-                console.error('No deleteCallback found!');
-            }
-        }
-        
-        // Delete single history - TEMPORARY: using confirm() for testing
+        // Delete single history
         function deleteHistory(sessionId) {
             console.log('deleteHistory called with sessionId:', sessionId);
             
-            // Temporary: use browser confirm instead of modal
-            if (confirm('Apakah Anda yakin ingin menghapus riwayat kehadiran ini?')) {
+            if (confirm('Apakah Anda yakin ingin menghapus riwayat kehadiran ini dari dashboard Anda?')) {
                 console.log('Confirmed! Calling deleteSingleAttendance...');
                 showLoading();
                 deleteSingleAttendance(sessionId).then(function() {
@@ -355,12 +299,11 @@
             }
         }
         
-        // Delete all history - TEMPORARY: using confirm() for testing
+        // Delete all history
         function deleteAllHistory() {
             console.log('deleteAllHistory called');
             
-            // Temporary: use browser confirm instead of modal
-            if (confirm('Apakah Anda yakin ingin menghapus SEMUA riwayat kehadiran Anda? Tindakan ini tidak dapat dibatalkan!')) {
+            if (confirm('Apakah Anda yakin ingin menghapus semua riwayat kehadiran ini dari dashboard Anda?')) {
                 console.log('Confirmed! Calling deleteAllAttendanceRecords...');
                 showLoading();
                 deleteAllAttendanceRecords().then(function() {
@@ -371,6 +314,8 @@
                 });
             }
         }
+        
+        // ==================== UI FUNCTIONS ====================
         
         // Show notification
         function showNotification(message, type) {
@@ -413,18 +358,18 @@
             deleteAllBtn.style.display = 'block';
             
             // Calculate stats
-            let hadir = 0, sakit = 0, izin = 0, alpha = 0;
+            let hadir = 0, sakit = 0, izin = 0, Alpa = 0;
             history.forEach(function(h) {
                 if (h.attendance.status === 'hadir') hadir++;
                 else if (h.attendance.status === 'sakit') sakit++;
                 else if (h.attendance.status === 'izin') izin++;
-                else if (h.attendance.status === 'alpha') alpha++;
+                else if (h.attendance.status === 'Alpa') Alpa++;
             });
             
             document.getElementById('countHadir').textContent = hadir;
             document.getElementById('countSakit').textContent = sakit;
             document.getElementById('countIzin').textContent = izin;
-            document.getElementById('countAlpha').textContent = alpha;
+            document.getElementById('countAlpa').textContent = Alpa;
             
             // Render table
             let html = '<div class="overflow-x-auto"><table class="data-table">';
@@ -443,7 +388,7 @@
                 if (item.attendance.status === 'hadir') badge = '<span class="badge badge-success">Hadir</span>';
                 else if (item.attendance.status === 'sakit') badge = '<span class="badge badge-warning">Sakit</span>';
                 else if (item.attendance.status === 'izin') badge = '<span class="badge badge-info">Izin</span>';
-                else badge = '<span class="badge badge-danger">Alpha</span>';
+                else badge = '<span class="badge badge-danger">Alpa</span>';
                 
                 html += '<tr>' +
                     '<td>' + (index + 1) + '</td>' +
@@ -479,13 +424,15 @@
         
         // Load history
         async function loadHistory() {
+            console.log('loadHistory() called');
             const history = await getMahasiswaAttendance();
+            console.log('History loaded, total visible records:', history.length);
             renderHistory(history);
+            console.log('History rendered');
         }
         
         // Loading functions
         function showLoading() {
-            // Simple loading implementation
             document.body.style.cursor = 'wait';
         }
         
@@ -495,6 +442,9 @@
         
         // Initial load
         loadHistory();
+        
+        console.log('✅ Dashboard Mahasiswa loaded with Soft Delete feature');
+        console.log('📝 Hidden list stored at: hidden:mahasiswa:' + user.npm);
     </script>
     
 </body>

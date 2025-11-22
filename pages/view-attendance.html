@@ -107,7 +107,7 @@
     </div>
     
     <!-- Edit Modal -->
-    <div id="editModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
+    <div id="editModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
         <div class="bg-white rounded-lg shadow-lg p-6 max-w-md w-full mx-4">
             <h2 class="text-2xl font-bold mb-4">Edit Absensi</h2>
             <form id="editForm" class="space-y-4">
@@ -232,6 +232,9 @@
             
             let html = '';
             filteredData.forEach((item, index) => {
+                // Find original index in attendanceData
+                const originalIndex = attendanceData.findIndex(a => a.npm === item.npm);
+                
                 const method = item.jamScan === '-' ? 'manual' : 'qr';
                 let statusBadge = '';
                 
@@ -252,8 +255,8 @@
                     '<td class="px-4 py-3 text-center">' + methodBadge + '</td>' +
                     '<td class="px-4 py-3 text-center">' + statusBadge + '</td>' +
                     '<td class="px-4 py-3 text-center">' +
-                    '<button onclick="editRow(' + attendanceData.indexOf(item) + ')" class="text-indigo-600 hover:text-indigo-800 mr-2">✏️ Edit</button>' +
-                    '<button onclick="deleteRow(' + attendanceData.indexOf(item) + ')" class="text-red-600 hover:text-red-800">🗑️ Hapus</button>' +
+                    '<button onclick="editRow(' + originalIndex + ')" class="text-indigo-600 hover:text-indigo-800 mr-2">✏️ Edit</button>' +
+                    '<button onclick="deleteRow(' + originalIndex + ')" class="text-red-600 hover:text-red-800">🗑️ Hapus</button>' +
                     '</td>' +
                     '</tr>';
             });
@@ -283,17 +286,30 @@
         
         // Edit Row
         function editRow(index) {
+            console.log('Edit row:', index);
+            console.log('Attendance data length:', attendanceData.length);
+            
+            if (index < 0 || index >= attendanceData.length) {
+                console.error('Invalid index:', index);
+                alert('Error: Index tidak valid!');
+                return;
+            }
+            
             const item = attendanceData[index];
+            console.log('Editing item:', item);
+            
             document.getElementById('editIndex').value = index;
             document.getElementById('editNPM').value = item.npm;
             document.getElementById('editNama').value = item.nama;
             document.getElementById('editStatus').value = item.status;
-            document.getElementById('editModal').classList.remove('hidden');
+            
+            // Show modal
+            document.getElementById('editModal').style.display = 'flex';
         }
         
         // Close Edit Modal
         function closeEditModal() {
-            document.getElementById('editModal').classList.add('hidden');
+            document.getElementById('editModal').style.display = 'none';
         }
         
         // Save Edit
@@ -302,6 +318,8 @@
             
             const index = parseInt(document.getElementById('editIndex').value);
             const newStatus = document.getElementById('editStatus').value;
+            
+            console.log('Saving edit for index:', index, 'New status:', newStatus);
             
             attendanceData[index].status = newStatus;
             
@@ -314,7 +332,17 @@
         
         // Delete Row
         async function deleteRow(index) {
-            if (!confirm('Yakin ingin menghapus data ini?')) return;
+            console.log('Delete row:', index);
+            
+            if (index < 0 || index >= attendanceData.length) {
+                console.error('Invalid index:', index);
+                alert('Error: Index tidak valid!');
+                return;
+            }
+            
+            const item = attendanceData[index];
+            
+            if (!confirm('Yakin ingin menghapus data ' + item.nama + ' (' + item.npm + ')?')) return;
             
             showLoading();
             attendanceData.splice(index, 1);
