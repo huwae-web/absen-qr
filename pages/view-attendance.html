@@ -200,6 +200,12 @@
             showLoading();
             
             attendanceData = await StorageManager.get('attendance:' + sessionId) || [];
+            
+            // Sort by NPM (ascending - dari kecil ke besar)
+            attendanceData.sort(function(a, b) {
+                return a.npm.localeCompare(b.npm);
+            });
+            
             filteredData = JSON.parse(JSON.stringify(attendanceData));
             
             // Update stats
